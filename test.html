@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Portal</title>
+    <style>
+        body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background: #121212; color: white; margin: 0; }
+        .box { text-align: center; padding: 20px; border: 1px solid #333; border-radius: 8px; }
+        button { background: #007bff; color: white; border: none; padding: 12px 24px; font-size: 16px; border-radius: 5px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+    </style>
+</head>
+<body>
+
+    <div class="box">
+        <h2>Private Access</h2>
+        <p>Click below to open the site in a blank history state.</p>
+        <button onclick="openSite()">Open Private Page</button>
+    </div>
+
+    <script>
+        function openSite() {
+            // 1. Open the about:blank window
+            const win = window.open('about:blank', '_blank');
+
+            // 2. Your actual website content (HTML/CSS)
+            const siteContent = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>Invisible Page</title>
+                    <style>
+                        body { font-family: sans-serif; padding: 50px; line-height: 1.6; }
+                        .warning { color: red; font-weight: bold; }
+                    </style>
+                </head>
+                <body>
+                    <h1>This page is not in your history.</h1>
+                    <p>Check your <b>Chrome History (Ctrl+H)</b> right now.</p>
+                    <p>You will see "about:blank" or nothing, but not this content.</p>
+                    <hr>
+                    <p class="warning">Note: If you refresh this page, the content will vanish because it exists only in the browser's memory.</p>
+                </body>
+                </html>
+            `;
+
+            // 3. Write the content to the new blank tab
+            win.document.write(siteContent);
+            win.document.close();
+
+            // 4. Redirect this original page to Google so it leaves the history too
+            window.location.replace("https://google.com");
+        }
+    </script>
+
+</body>
+</html>
