@@ -1,0 +1,892 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sheetdrop — image uploads stored in a Google Sheet</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #edf0f5;
+    --surface: #ffffff;
+    --ink: #1a2233;
+    --muted: #5b667a;
+    --grid: #dce1eb;
+    --grid-strong: #b9c2d3;
+    --track: #e3e8f1;
+    --accent: #2457e6;
+    --accent-ink: #ffffff;
+    --ok: #1b7f4f;
+    --err: #b3261e;
+    --font-display: 'Bricolage Grotesque', 'Segoe UI', system-ui, sans-serif;
+    --font-body: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f131b;
+      --surface: #171d29;
+      --ink: #e7ecf6;
+      --muted: #98a3b8;
+      --grid: #252e40;
+      --grid-strong: #3a4660;
+      --track: #252e40;
+      --accent: #7aa2ff;
+      --accent-ink: #0f131b;
+      --ok: #5fd3a0;
+      --err: #ff8a80;
+    }
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 400 16px/1.5 var(--font-body);
+  }
+  [hidden] { display: none !important; }
+  a { color: var(--accent); }
+  code { font: 400 0.875em var(--font-mono); background: var(--track); padding: 1px 5px; border-radius: 3px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .page { max-width: 760px; margin: 0 auto; padding: 32px 20px 96px; }
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .brand { font: 700 32px/1 var(--font-display); letter-spacing: -0.02em; margin: 0; }
+  .lede { color: var(--muted); margin: 10px 0 24px; max-width: 58ch; }
+
+  h2 { font: 600 20px/1.25 var(--font-display); margin: 0; letter-spacing: -0.01em; }
+
+  /* buttons */
+  .btn {
+    font: 500 0.875rem/1 var(--font-body);
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--grid-strong);
+    border-radius: 4px;
+    padding: 8px 12px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-block;
+    transition: border-color .12s, background-color .12s;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .btn.danger:hover { border-color: var(--err); color: var(--err); }
+  .btn:disabled { opacity: .55; cursor: default; }
+
+  /* connection status + setup */
+  .status {
+    display: inline-flex; align-items: center; gap: 8px;
+    font: 500 0.875rem/1 var(--font-body);
+    color: var(--ink); background: var(--surface);
+    border: 1px solid var(--grid-strong); border-radius: 999px;
+    padding: 8px 12px; cursor: pointer;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--grid-strong); }
+  .status[data-state="ok"] .dot { background: var(--ok); }
+  .status[data-state="bad"] .dot { background: var(--err); }
+
+  .panel { background: var(--surface); border: 1px solid var(--grid-strong); border-radius: 2px; }
+  .setup { padding: 20px; margin-bottom: 24px; }
+  .setup h2 { margin-bottom: 8px; }
+  .setup ol { margin: 0 0 18px; padding-left: 20px; color: var(--muted); }
+  .setup li { margin: 4px 0; }
+  .field { display: grid; gap: 4px; margin-bottom: 12px; }
+  .field label { font-weight: 500; font-size: 0.9rem; }
+  .field .opt { color: var(--muted); font-weight: 400; }
+  .field input {
+    font: 400 0.9375rem/1.4 var(--font-mono);
+    color: var(--ink); background: var(--bg);
+    border: 1px solid var(--grid-strong); border-radius: 4px; padding: 9px 10px; width: 100%;
+  }
+  .setup-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .msg { font-size: 0.875rem; color: var(--muted); }
+  .msg[data-kind="ok"] { color: var(--ok); }
+  .msg[data-kind="err"] { color: var(--err); }
+
+  /* drop zone: a selected spreadsheet cell */
+  .drop {
+    position: relative; display: block; cursor: pointer;
+    min-height: 196px; padding: 32px 28px;
+    background-color: var(--surface);
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 96px 32px;
+    background-position: -1px -1px;
+    border: 1px solid var(--grid-strong);
+    border-radius: 2px;
+    transition: border-color .12s, box-shadow .12s;
+  }
+  .drop::after {
+    content: ""; position: absolute; right: -6px; bottom: -6px;
+    width: 10px; height: 10px; background: var(--accent);
+    border: 2px solid var(--bg); opacity: 0; transition: opacity .12s;
+  }
+  .drop:hover, .drop:focus-visible, .drop.over {
+    border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); outline: none;
+  }
+  .drop:hover::after, .drop:focus-visible::after, .drop.over::after { opacity: 1; }
+  .drop.over { background-color: var(--track); }
+  .drop-body { display: inline-block; background: var(--surface); padding: 12px 16px 14px; max-width: 40ch; }
+  .drop-title { font: 600 24px/1.2 var(--font-display); letter-spacing: -0.01em; }
+  .drop-sub { color: var(--muted); font-size: 0.9375rem; margin-top: 4px; }
+  .drop input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+  /* upload jobs */
+  .jobs { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 8px; }
+  .job {
+    display: grid; grid-template-columns: 72px 1fr; gap: 14px;
+    background: var(--surface); border: 1px solid var(--grid-strong); border-radius: 2px; padding: 12px;
+  }
+  .job-thumb { width: 72px; height: 72px; object-fit: cover; background: var(--track); border-radius: 2px; }
+  .job-head { display: flex; justify-content: space-between; align-items: baseline; gap: 4px 12px; flex-wrap: wrap; }
+  .job-name { font-weight: 600; overflow-wrap: anywhere; }
+  .job-state { font-size: 0.875rem; color: var(--muted); }
+  .job-state[data-kind="ok"] { color: var(--ok); }
+  .job-state[data-kind="err"] { color: var(--err); }
+  .sizes {
+    display: grid; grid-template-columns: auto 1fr auto; column-gap: 10px; row-gap: 6px;
+    align-items: center; margin: 10px 0 12px; font-size: 0.8125rem; font-variant-numeric: tabular-nums;
+  }
+  .sizes .lbl { color: var(--muted); }
+  .sizes .val { text-align: right; min-width: 64px; }
+  .track { position: relative; height: 10px; background: var(--track); border-radius: 2px; }
+  .fill { display: block; height: 100%; width: 0; border-radius: 2px; transition: width .35s ease; }
+  .fill.orig { background: var(--grid-strong); }
+  .fill.stored { background: var(--accent); }
+  .job[data-done="1"] .fill.stored { background: var(--ok); }
+  .tick { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--ink); opacity: .65; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+  /* recent uploads */
+  .section-head { display: flex; align-items: center; justify-content: space-between; margin: 40px 0 12px; }
+  .rows { background: var(--surface); border: 1px solid var(--grid-strong); border-radius: 2px; }
+  .row {
+    display: grid; grid-template-columns: 48px 1fr auto; gap: 12px; align-items: center;
+    padding: 8px 12px; border-top: 1px solid var(--grid);
+  }
+  .row:first-child { border-top: 0; }
+  .row-thumb { width: 48px; height: 48px; object-fit: cover; background: var(--track); border-radius: 2px; }
+  .row-name { font-weight: 500; overflow-wrap: anywhere; }
+  .row-meta { color: var(--muted); font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
+  .empty { padding: 20px 16px; color: var(--muted); }
+  .empty[data-kind="err"] { color: var(--err); }
+  @media (max-width: 560px) {
+    .row { grid-template-columns: 48px 1fr; }
+    .row .actions { grid-column: 1 / -1; }
+  }
+
+  /* API docs */
+  .api { margin-top: 32px; }
+  .api > summary { padding: 14px 16px; font-weight: 600; cursor: pointer; }
+  .api-body { padding: 0 16px 16px; }
+  .api-body h3 { font: 600 16px/1.3 var(--font-display); margin: 20px 0 6px; }
+  .api-body p { margin: 6px 0; color: var(--muted); }
+  table.endpoints { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 0.875rem; }
+  .endpoints th, .endpoints td { text-align: left; vertical-align: top; padding: 8px 10px 8px 0; border-top: 1px solid var(--grid); }
+  .endpoints th { font-weight: 600; }
+  .endpoints td:first-child { white-space: nowrap; font: 500 0.8125rem var(--font-mono); }
+  .scroll-x { overflow-x: auto; }
+  .code { position: relative; margin: 8px 0 4px; }
+  .code pre {
+    margin: 0; padding: 14px 14px; padding-right: 76px; overflow-x: auto;
+    background: var(--bg); border: 1px solid var(--grid); border-radius: 2px;
+    font: 400 0.8125rem/1.55 var(--font-mono);
+  }
+  .code .btn { position: absolute; top: 8px; right: 8px; padding: 6px 9px; font-size: 0.75rem; }
+
+  /* viewer */
+  .viewer { padding-top: 8px; }
+  .viewer-img {
+    display: block; max-width: 100%; max-height: 72vh; margin: 16px 0;
+    background-color: var(--track);
+    background-image: repeating-conic-gradient(var(--grid) 0 25%, transparent 0 50%);
+    background-size: 16px 16px;
+    border: 1px solid var(--grid-strong);
+  }
+  .viewer h2 { overflow-wrap: anywhere; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition: none !important; animation: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="top">
+    <h1 class="brand">Sheetdrop</h1>
+    <button class="status" id="statusBtn" type="button" aria-expanded="false" aria-controls="setup" data-state="idle">
+      <span class="dot" aria-hidden="true"></span><span id="statusText">Not connected</span>
+    </button>
+  </header>
+  <p class="lede">Images over 1 MB are compressed in your browser, then stored as data URLs in your Google Sheet.</p>
+
+  <section class="panel setup" id="setup" hidden>
+    <h2>Connect your Google Sheet</h2>
+    <ol>
+      <li>Create a Google Sheet, then open <b>Extensions → Apps Script</b>.</li>
+      <li>Paste in <code>Code.gs</code>, run <code>setup</code> once, and approve access.</li>
+      <li>Choose <b>Deploy → New deployment → Web app</b>. Set <i>Execute as</i> to Me and <i>Who has access</i> to Anyone.</li>
+      <li>Paste the Web app URL below.</li>
+    </ol>
+    <div class="field">
+      <label for="apiUrl">Web app URL</label>
+      <input id="apiUrl" type="url" inputmode="url" spellcheck="false" autocomplete="off" placeholder="https://script.google.com/macros/s/…/exec">
+    </div>
+    <div class="field">
+      <label for="apiKey">Upload key <span class="opt">(only if you set API_KEY in Code.gs)</span></label>
+      <input id="apiKey" type="password" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="setup-actions">
+      <button class="btn primary" id="saveCfg" type="button">Save and test</button>
+      <span class="msg" id="cfgMsg" role="status"></span>
+    </div>
+  </section>
+
+  <main id="uploader">
+    <label class="drop" id="drop" tabindex="0">
+      <span class="drop-body">
+        <span class="drop-title" style="display:block">Drop images here</span>
+        <span class="drop-sub" style="display:block">Or click to choose files, or paste from your clipboard. Anything over 1 MB is shrunk to fit.</span>
+      </span>
+      <input id="file" type="file" accept="image/*" multiple>
+    </label>
+
+    <ul class="jobs" id="jobs" aria-label="Uploads"></ul>
+
+    <div class="section-head">
+      <h2>Recent uploads</h2>
+      <button class="btn" id="refresh" type="button">Refresh</button>
+    </div>
+    <div class="rows" id="gallery"></div>
+
+    <details class="panel api" id="apiDocs">
+      <summary>Use the API</summary>
+      <div class="api-body">
+        <p>Your Web App URL is the API. Every response is JSON with <code>ok: true</code> or <code>ok: false</code> and an <code>error</code>.</p>
+        <div class="scroll-x">
+          <table class="endpoints">
+            <thead><tr><th>Request</th><th>What it does</th></tr></thead>
+            <tbody>
+              <tr><td>POST upload</td><td>Store an image. Body: <code>{"action":"upload","name","dataUrl","key"}</code>. Returns <code>id</code> and <code>deleteToken</code>. Max 1 MB.</td></tr>
+              <tr><td>GET ?action=list</td><td>Newest images with small thumbnails. Optional <code>&amp;limit=24</code>.</td></tr>
+              <tr><td>GET ?action=info&amp;id=</td><td>Name, type, size and date for one image.</td></tr>
+              <tr><td>GET ?action=get&amp;id=</td><td>Everything in <code>info</code> plus the full <code>dataUrl</code>.</td></tr>
+              <tr><td>POST delete</td><td>Body: <code>{"action":"delete","id","token"}</code>.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Send POST bodies as <code>text/plain</code> so browsers skip the CORS preflight that Apps Script can’t answer.</p>
+
+        <h3>Upload from JavaScript, with automatic compression</h3>
+        <p>This page exposes <code>window.Sheetdrop</code>. Copy this file to your own project and call:</p>
+        <div id="snipSdk"></div>
+
+        <h3>Upload with fetch (image must already be 1 MB or less)</h3>
+        <div id="snipFetch"></div>
+
+        <h3>Upload with curl</h3>
+        <div id="snipCurl"></div>
+
+        <h3>Read an image back</h3>
+        <div id="snipGet"></div>
+      </div>
+    </details>
+  </main>
+
+  <main class="viewer" id="viewer" hidden>
+    <h2 id="vTitle">Loading…</h2>
+    <p class="msg" id="vMeta" role="status"></p>
+    <img class="viewer-img" id="vImg" alt="" hidden>
+    <div class="actions" id="vActions"></div>
+  </main>
+</div>
+
+<script>
+'use strict';
+
+/* =====================================================================
+   SETTINGS
+   ===================================================================== */
+// Paste your Web App URL here to skip the setup box and get shorter share links.
+const DEFAULT_API_URL = '';
+const TARGET_BYTES = 1024 * 1024;   // stored images are kept at or under 1 MB
+const MAX_DIMENSION = 4096;         // longest side allowed when an image has to be re-encoded
+const THUMB_SIZE = 220;
+
+/* =====================================================================
+   SMALL HELPERS
+   ===================================================================== */
+const $ = (sel) => document.querySelector(sel);
+
+function h(tag, attrs = {}, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v === false || v == null) continue;
+    if (k === 'class') el.className = v;
+    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v === true ? '' : v);
+  }
+  for (const kid of kids.flat()) {
+    if (kid == null || kid === false) continue;
+    el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+  }
+  return el;
+}
+
+const store = {
+  get(key, fallback = '') { try { const v = localStorage.getItem(key); return v === null ? fallback : v; } catch { return fallback; } },
+  set(key, value) { try { localStorage.setItem(key, value); } catch { /* storage unavailable */ } },
+};
+
+function fmtBytes(n) {
+  if (n >= 1048576) return (n / 1048576).toFixed(2) + ' MB';
+  if (n >= 1024) return Math.round(n / 1024) + ' KB';
+  return n + ' B';
+}
+
+function timeAgo(iso) {
+  const t = Date.parse(iso);
+  if (!t) return '';
+  const sec = Math.round((t - Date.now()) / 1000);
+  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+  const steps = [['day', 86400], ['hour', 3600], ['minute', 60]];
+  for (const [unit, s] of steps) if (Math.abs(sec) >= s) return rtf.format(Math.round(sec / s), unit);
+  return 'just now';
+}
+
+async function copyText(text, btn) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const ta = h('textarea', { style: 'position:fixed;opacity:0' });
+    ta.value = text;
+    document.body.append(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch { /* ignore */ }
+    ta.remove();
+  }
+  if (btn) {
+    btn.dataset.label = btn.dataset.label || btn.textContent;
+    btn.textContent = 'Copied';
+    clearTimeout(btn._t);
+    btn._t = setTimeout(() => { btn.textContent = btn.dataset.label; }, 1400);
+  }
+}
+
+/* =====================================================================
+   CONFIG + API CLIENT
+   ===================================================================== */
+const cfg = { url: store.get('sheetdrop.url', DEFAULT_API_URL), key: store.get('sheetdrop.key', '') };
+const qs = new URLSearchParams(location.search);
+if (qs.get('view') && !cfg.url && qs.get('api')) cfg.url = qs.get('api'); // shared link on a device that isn't set up
+
+function readTokens() { try { return JSON.parse(store.get('sheetdrop.tokens', '{}')) || {}; } catch { return {}; } }
+function rememberToken(id, token) { const t = readTokens(); t[id] = token; store.set('sheetdrop.tokens', JSON.stringify(t)); }
+function forgetToken(id) { const t = readTokens(); delete t[id]; store.set('sheetdrop.tokens', JSON.stringify(t)); }
+
+async function request(url, init) {
+  let res;
+  try {
+    res = await fetch(url, init);
+  } catch {
+    throw new Error('Could not reach the Web App. Check the URL, and that “Who has access” is set to Anyone.');
+  }
+  let json;
+  try { json = await res.json(); }
+  catch { throw new Error('The Web App did not return JSON. Check that you deployed the latest version of Code.gs.'); }
+  if (!json.ok) throw new Error(json.error || 'Request failed.');
+  return json;
+}
+
+function needUrl() { if (!cfg.url) throw new Error('Add your Web App URL first.'); }
+
+async function apiGet(params) {
+  needUrl();
+  return request(cfg.url + (cfg.url.includes('?') ? '&' : '?') + new URLSearchParams(params));
+}
+
+async function apiPost(body) {
+  needUrl();
+  return request(cfg.url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // "simple" request: no CORS preflight
+    body: JSON.stringify(body),
+  });
+}
+
+function pageBase() { return location.href.split('#')[0].split('?')[0]; }
+function linkFor(id) {
+  return pageBase() + '?view=' + encodeURIComponent(id) + (DEFAULT_API_URL ? '' : '&api=' + encodeURIComponent(cfg.url));
+}
+function apiUrlFor(id) { return cfg.url + (cfg.url.includes('?') ? '&' : '?') + 'action=get&id=' + encodeURIComponent(id); }
+
+/* =====================================================================
+   IMAGE COMPRESSION
+   Re-encodes with the canvas API. For each size it searches for the
+   highest quality that fits under 1 MB. If even quality 0.6 is too big,
+   the image is scaled down (by an amount estimated from the overshoot)
+   and the search repeats.
+   ===================================================================== */
+const dims = (src) => [src.naturalWidth || src.width, src.naturalHeight || src.height];
+const toBlob = (canvas, type, q) => new Promise((res) => canvas.toBlob(res, type, q));
+
+function blobToDataURL(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+
+let webpSupported;
+function supportsWebP() {
+  if (webpSupported === undefined) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 1;
+    webpSupported = c.toDataURL('image/webp').startsWith('data:image/webp');
+  }
+  return webpSupported;
+}
+
+async function decode(blob) {
+  try {
+    return await createImageBitmap(blob, { imageOrientation: 'from-image' });
+  } catch {
+    const url = URL.createObjectURL(blob);
+    try {
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      return img;
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+}
+
+function renamed(name, mime) {
+  const ext = mime === 'image/webp' ? 'webp' : mime === 'image/jpeg' ? 'jpg' : mime.split('/')[1];
+  return (name || 'image').replace(/\.[^.]+$/, '') + '.' + ext;
+}
+
+async function compressImage(file, { target = TARGET_BYTES, onStatus = () => {} } = {}) {
+  if (file.size <= target) return { blob: file, compressed: false };
+
+  onStatus('Reading image…');
+  let src;
+  try { src = await decode(file); }
+  catch { throw new Error('This browser can’t read that image format, so it can’t be compressed.'); }
+
+  const [w0, h0] = dims(src);
+  const type = supportsWebP() ? 'image/webp' : 'image/jpeg'; // WebP keeps transparency; JPEG gets a white background
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  const Q_HI = 0.95, Q_LO = 0.6;
+  let scale = Math.min(1, MAX_DIMENSION / Math.max(w0, h0));
+
+  try {
+    for (let pass = 1; pass <= 10; pass++) {
+      const w = Math.max(1, Math.round(w0 * scale));
+      const hgt = Math.max(1, Math.round(h0 * scale));
+      canvas.width = w;
+      canvas.height = hgt;
+      if (type === 'image/jpeg') { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, hgt); }
+      else ctx.clearRect(0, 0, w, hgt);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(src, 0, 0, w, hgt);
+
+      onStatus(`Compressing… pass ${pass} at ${w}×${hgt}`);
+
+      const top = await toBlob(canvas, type, Q_HI);
+      if (top && top.size <= target) return { blob: top, compressed: true, width: w, height: hgt };
+
+      let best = await toBlob(canvas, type, Q_LO);
+      if (!best) throw new Error('Compression failed in this browser.');
+      if (best.size > target) {
+        // Still too big at the lowest quality we accept: shrink the pixels and retry.
+        scale *= Math.min(0.9, Math.sqrt(target / best.size) * 0.97);
+        continue;
+      }
+
+      // Q_LO fits, Q_HI doesn't: binary-search the best quality in between.
+      let lo = Q_LO, hi = Q_HI;
+      for (let i = 0; i < 7; i++) {
+        const mid = (lo + hi) / 2;
+        const b = await toBlob(canvas, type, mid);
+        if (b && b.size <= target) { best = b; lo = mid; } else { hi = mid; }
+      }
+      return { blob: best, compressed: true, width: w, height: hgt };
+    }
+    throw new Error('Could not shrink this image to 1 MB.');
+  } finally {
+    if (src.close) src.close();
+  }
+}
+
+async function makeThumb(blob) {
+  try {
+    const src = await decode(blob);
+    const [w, hgt] = dims(src);
+    const s = Math.min(1, THUMB_SIZE / Math.max(w, hgt));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(w * s));
+    c.height = Math.max(1, Math.round(hgt * s));
+    const x = c.getContext('2d');
+    x.fillStyle = '#fff';
+    x.fillRect(0, 0, c.width, c.height);
+    x.drawImage(src, 0, 0, c.width, c.height);
+    if (src.close) src.close();
+    return c.toDataURL('image/jpeg', 0.72);
+  } catch {
+    return ''; // formats the browser can't draw simply get no thumbnail
+  }
+}
+
+/* =====================================================================
+   PUBLIC API  (window.Sheetdrop)
+   ===================================================================== */
+const Sheetdrop = {
+  config: cfg,
+  configure({ url, key } = {}) {
+    if (url !== undefined) { cfg.url = String(url).trim(); store.set('sheetdrop.url', cfg.url); }
+    if (key !== undefined) { cfg.key = String(key); store.set('sheetdrop.key', cfg.key); }
+    return cfg;
+  },
+  compress: compressImage,
+  async uploadBlob(blob, name) {
+    const dataUrl = await blobToDataURL(blob);
+    const thumb = await makeThumb(blob);
+    const res = await apiPost({ action: 'upload', key: cfg.key || undefined, name, dataUrl, thumb });
+    if (res.deleteToken) rememberToken(res.id, res.deleteToken);
+    return { ...res, dataUrl, link: linkFor(res.id), apiUrl: apiUrlFor(res.id) };
+  },
+  async upload(file, opts = {}) {
+    const out = await compressImage(file, opts);
+    const name = out.compressed ? renamed(file.name, out.blob.type) : file.name;
+    const res = await Sheetdrop.uploadBlob(out.blob, name);
+    return { ...res, originalBytes: file.size, compressed: out.compressed };
+  },
+  get: (id) => apiGet({ action: 'get', id }),
+  info: (id) => apiGet({ action: 'info', id }),
+  list: (limit) => apiGet({ action: 'list', limit: limit || 24 }),
+  remove: (id, token) => apiPost({ action: 'delete', id, token: token || readTokens()[id] }),
+};
+window.Sheetdrop = Sheetdrop;
+
+/* =====================================================================
+   CONNECTION PANEL
+   ===================================================================== */
+const setupEl = $('#setup'), statusBtn = $('#statusBtn');
+
+function setStatus(state, text) {
+  statusBtn.dataset.state = state;
+  $('#statusText').textContent = text;
+}
+function setCfgMsg(text, kind = '') {
+  const m = $('#cfgMsg');
+  m.textContent = text;
+  m.dataset.kind = kind;
+}
+function toggleSetup(open) {
+  const willOpen = open === undefined ? setupEl.hidden : open;
+  setupEl.hidden = !willOpen;
+  statusBtn.setAttribute('aria-expanded', String(willOpen));
+  if (willOpen) $('#apiUrl').focus();
+}
+
+async function checkConnection(quiet = false) {
+  if (!cfg.url) { setStatus('idle', 'Not connected'); return false; }
+  if (!quiet) setStatus('idle', 'Checking…');
+  try {
+    const r = await apiGet({ action: 'ping' });
+    setStatus('ok', `Connected · ${r.stored} image${r.stored === 1 ? '' : 's'}`);
+    if (quiet) return true;
+    if (r.keyRequired && !cfg.key) {
+      setCfgMsg('This sheet requires an upload key. Enter it above.', 'err');
+      toggleSetup(true);
+    } else {
+      setCfgMsg('Connected.', 'ok');
+    }
+    return true;
+  } catch (e) {
+    if (quiet) return false;
+    setStatus('bad', 'Can’t reach sheet');
+    setCfgMsg(e.message, 'err');
+    return false;
+  }
+}
+
+statusBtn.addEventListener('click', () => toggleSetup());
+$('#apiUrl').value = cfg.url;
+$('#apiKey').value = cfg.key;
+$('#saveCfg').addEventListener('click', async () => {
+  const url = $('#apiUrl').value.trim();
+  if (!/^https:\/\/script\.google\.com\/.+\/exec/.test(url) && !/^https:\/\/script\.googleusercontent\.com\//.test(url)) {
+    setCfgMsg('That doesn’t look like a Web App URL. It should start with https://script.google.com and end in /exec.', 'err');
+    return;
+  }
+  Sheetdrop.configure({ url, key: $('#apiKey').value });
+  setCfgMsg('Testing…');
+  if (await checkConnection()) { renderSnippets(); loadGallery(); }
+});
+
+/* =====================================================================
+   UPLOAD JOBS
+   ===================================================================== */
+const jobsEl = $('#jobs');
+
+function createJob(file) {
+  const previewUrl = URL.createObjectURL(file);
+  const sizeRow = (label, fillClass) => {
+    const tick = h('span', { class: 'tick', title: '1 MB limit' });
+    const fill = h('span', { class: 'fill ' + fillClass });
+    const val = h('span', { class: 'val' }, '');
+    return { tick, fill, val, cells: [h('span', { class: 'lbl' }, label), h('div', { class: 'track' }, fill, tick), val] };
+  };
+  const orig = sizeRow('Original', 'orig');
+  const stored = sizeRow('Stored', 'stored');
+  const state = h('span', { class: 'job-state', role: 'status' }, 'Waiting…');
+  const actions = h('div', { class: 'actions' });
+
+  const root = h('li', { class: 'job' },
+    h('img', { class: 'job-thumb', src: previewUrl, alt: '' }),
+    h('div', {},
+      h('div', { class: 'job-head' }, h('span', { class: 'job-name' }, file.name || 'Pasted image'), state),
+      h('div', { class: 'sizes' }, ...orig.cells, ...stored.cells),
+      actions,
+    ),
+  );
+  jobsEl.prepend(root);
+
+  return {
+    file, root, actions,
+    state(text, kind = '') { state.textContent = text; state.dataset.kind = kind; },
+    sizes(original, storedBytes) {
+      const max = Math.max(original, storedBytes || 0, TARGET_BYTES);
+      orig.fill.style.width = (original / max * 100) + '%';
+      orig.val.textContent = fmtBytes(original);
+      const tick = (TARGET_BYTES / max * 100) + '%';
+      orig.tick.style.left = tick;
+      stored.tick.style.left = tick;
+      if (storedBytes != null) {
+        stored.fill.style.width = (storedBytes / max * 100) + '%';
+        stored.val.textContent = fmtBytes(storedBytes);
+      } else {
+        stored.val.textContent = '…';
+      }
+    },
+  };
+}
+
+async function processJob(job) {
+  const { file } = job;
+  job.sizes(file.size, null);
+  try {
+    const out = await compressImage(file, { onStatus: (s) => job.state(s) });
+    job.sizes(file.size, out.blob.size);
+    const name = out.compressed ? renamed(file.name || 'pasted-image.png', out.blob.type) : (file.name || 'pasted-image.png');
+
+    job.state('Saving to your sheet…');
+    const res = await Sheetdrop.uploadBlob(out.blob, name);
+
+    job.root.dataset.done = '1';
+    const saved = out.compressed ? Math.round((1 - out.blob.size / file.size) * 100) : 0;
+    let msg = out.compressed
+      ? `Saved · compressed ${saved}% (${out.width}×${out.height})`
+      : 'Saved · already under 1 MB, stored as is';
+    if (out.compressed && file.type === 'image/gif') msg += ' · animation flattened to one frame';
+    job.state(msg, 'ok');
+
+    job.actions.append(
+      h('button', { class: 'btn primary', type: 'button', onclick: (e) => copyText(res.link, e.currentTarget) }, 'Copy link'),
+      h('button', { class: 'btn', type: 'button', onclick: (e) => copyText(res.dataUrl, e.currentTarget) }, 'Copy data URL'),
+      h('button', { class: 'btn', type: 'button', onclick: (e) => copyText(res.apiUrl, e.currentTarget) }, 'Copy API URL'),
+      h('a', { class: 'btn', href: res.link, target: '_blank', rel: 'noopener' }, 'Open'),
+    );
+    loadGallery();
+    checkConnection(true);
+  } catch (e) {
+    job.state(e.message || 'Upload failed.', 'err');
+  }
+}
+
+let chain = Promise.resolve();
+function handleFiles(list) {
+  const files = [...list].filter((f) => f.type.startsWith('image/'));
+  if (!files.length) return;
+  if (!cfg.url) { toggleSetup(true); setCfgMsg('Add your Web App URL before uploading.', 'err'); return; }
+  for (const f of files) {
+    const job = createJob(f);
+    chain = chain.then(() => processJob(job)); // one at a time, in order
+  }
+}
+
+/* drop zone, clipboard, file picker */
+const dropEl = $('#drop'), fileEl = $('#file');
+fileEl.addEventListener('change', () => { handleFiles(fileEl.files); fileEl.value = ''; });
+dropEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileEl.click(); } });
+
+let dragDepth = 0;
+window.addEventListener('dragenter', (e) => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { dragDepth++; dropEl.classList.add('over'); } });
+window.addEventListener('dragleave', () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) dropEl.classList.remove('over'); });
+window.addEventListener('dragover', (e) => e.preventDefault());
+window.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dragDepth = 0;
+  dropEl.classList.remove('over');
+  if (!$('#uploader').hidden && e.dataTransfer) handleFiles(e.dataTransfer.files);
+});
+document.addEventListener('paste', (e) => {
+  if ($('#uploader').hidden || !e.clipboardData) return;
+  const files = [...e.clipboardData.files];
+  if (files.length) handleFiles(files);
+});
+
+/* =====================================================================
+   RECENT UPLOADS
+   ===================================================================== */
+const galleryEl = $('#gallery');
+
+function galleryMessage(text, kind = '') {
+  galleryEl.replaceChildren(h('div', { class: 'empty', 'data-kind': kind }, text));
+}
+
+async function loadGallery() {
+  if (!cfg.url) { galleryMessage('Connect your sheet to see uploads.'); return; }
+  try {
+    const { items } = await Sheetdrop.list(24);
+    if (!items.length) { galleryMessage('Nothing here yet. Drop an image above to add the first row.'); return; }
+    const tokens = readTokens();
+    galleryEl.replaceChildren(...items.map((it) => {
+      const link = linkFor(it.id);
+      const actions = h('div', { class: 'actions' },
+        h('a', { class: 'btn', href: link, target: '_blank', rel: 'noopener' }, 'Open'),
+        h('button', { class: 'btn', type: 'button', onclick: (e) => copyText(link, e.currentTarget) }, 'Copy link'),
+        tokens[it.id] && h('button', {
+          class: 'btn danger', type: 'button',
+          onclick: async (e) => {
+            if (!confirm(`Delete “${it.name}”? This clears its rows in the sheet.`)) return;
+            e.currentTarget.disabled = true;
+            try { await Sheetdrop.remove(it.id); forgetToken(it.id); loadGallery(); checkConnection(true); }
+            catch (err) { e.currentTarget.disabled = false; alert(err.message); }
+          },
+        }, 'Delete'),
+      );
+      return h('div', { class: 'row' },
+        it.thumb ? h('img', { class: 'row-thumb', src: it.thumb, alt: '' }) : h('div', { class: 'row-thumb' }),
+        h('div', {},
+          h('div', { class: 'row-name' }, it.name),
+          h('div', { class: 'row-meta' }, `${fmtBytes(it.bytes)} · ${timeAgo(it.created)}`),
+        ),
+        actions,
+      );
+    }));
+  } catch (e) {
+    galleryMessage(e.message, 'err');
+  }
+}
+$('#refresh').addEventListener('click', loadGallery);
+
+/* =====================================================================
+   API DOCS (snippets use your real URL once it is saved)
+   ===================================================================== */
+function codeBlock(text) {
+  const btn = h('button', { class: 'btn', type: 'button', onclick: (e) => copyText(text, e.currentTarget) }, 'Copy');
+  return h('div', { class: 'code' }, h('pre', {}, text), btn);
+}
+
+function renderSnippets() {
+  const url = cfg.url || 'YOUR_WEB_APP_URL';
+  $('#snipSdk').replaceChildren(codeBlock(
+`Sheetdrop.configure({ url: '${url}' });
+
+// file comes from <input type="file"> or a drop event
+const result = await Sheetdrop.upload(file);
+console.log(result.link);      // shareable page
+console.log(result.apiUrl);    // JSON endpoint with the data URL
+console.log(result.deleteToken);`));
+
+  $('#snipFetch').replaceChildren(codeBlock(
+`const res = await fetch('${url}', {
+  method: 'POST',
+  headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+  body: JSON.stringify({
+    action: 'upload',
+    name: 'photo.jpg',
+    dataUrl: 'data:image/jpeg;base64,/9j/4AAQ…'
+  })
+});
+const { ok, id, deleteToken, error } = await res.json();`));
+
+  $('#snipCurl').replaceChildren(codeBlock(
+`# build the JSON body in a file (a 1 MB image is too big for one shell argument)
+{ printf '{"action":"upload","name":"photo.jpg","dataUrl":"data:image/jpeg;base64,'
+  base64 -w0 photo.jpg          # on macOS: base64 -i photo.jpg
+  printf '"}'
+} > payload.json
+
+curl -L -X POST '${url}' \\
+  -H 'Content-Type: text/plain' \\
+  --data-binary @payload.json`));
+
+  $('#snipGet').replaceChildren(codeBlock(
+`curl -L '${url}?action=get&id=IMAGE_ID'
+# → { "ok": true, "name": "...", "mime": "image/webp", "dataUrl": "data:image/webp;base64,..." }
+
+// use it directly in a page
+const { dataUrl } = await (await fetch('${url}?action=get&id=IMAGE_ID')).json();
+document.querySelector('img').src = dataUrl;`));
+}
+
+/* =====================================================================
+   SINGLE-IMAGE VIEWER  (?view=ID)
+   ===================================================================== */
+async function showViewer(id) {
+  $('#uploader').hidden = true;
+  setupEl.hidden = true;
+  statusBtn.hidden = true;
+  $('.lede').hidden = true;
+  $('#viewer').hidden = false;
+  try {
+    const r = await apiGet({ action: 'get', id });
+    document.title = r.name + ' — Sheetdrop';
+    $('#vTitle').textContent = r.name;
+    $('#vMeta').textContent = `${fmtBytes(r.bytes)} · ${r.mime}` + (timeAgo(r.created) ? ` · ${timeAgo(r.created)}` : '');
+    const img = $('#vImg');
+    img.src = r.dataUrl;
+    img.alt = r.name;
+    img.hidden = false;
+    $('#vActions').replaceChildren(
+      h('button', { class: 'btn primary', type: 'button', onclick: (e) => copyText(r.dataUrl, e.currentTarget) }, 'Copy data URL'),
+      h('button', { class: 'btn', type: 'button', onclick: (e) => copyText(location.href, e.currentTarget) }, 'Copy link'),
+      h('a', { class: 'btn', href: r.dataUrl, download: r.name }, 'Download'),
+      h('a', { class: 'btn', href: pageBase() }, 'Upload an image'),
+    );
+  } catch (e) {
+    $('#vTitle').textContent = 'Can’t show this image';
+    $('#vMeta').textContent = e.message;
+    $('#vMeta').dataset.kind = 'err';
+  }
+}
+
+/* =====================================================================
+   START
+   ===================================================================== */
+renderSnippets();
+if (qs.get('view')) {
+  showViewer(qs.get('view'));
+} else {
+  if (!cfg.url) toggleSetup(true);
+  checkConnection().then((ok) => { if (ok) loadGallery(); else galleryMessage('Connect your sheet to see uploads.'); });
+}
+</script>
+</body>
+</html>
